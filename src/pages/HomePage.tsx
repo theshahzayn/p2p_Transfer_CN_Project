@@ -31,6 +31,9 @@ const HomePage: React.FC = () => {
   const [connectionTime, setConnectionTime] = useState<number>();
   const [availablePeers, setAvailablePeers] = useState<Peer[]>([]);
 
+  const [receivedFileUrl, setReceivedFileUrl] = useState<string | null>(null);
+  const [receivedFileName, setReceivedFileName] = useState<string>('received_file');
+
   useEffect(() => {
     if (username) {
       setConnectionId(username);
@@ -52,12 +55,10 @@ const HomePage: React.FC = () => {
 
     setConnectionTime(Date.now());
 
-    setFileReceiver((blob) => {
+    setFileReceiver((blob, name, type) => {
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'received_file';
-      a.click();
+      setReceivedFileUrl(url);
+      setReceivedFileName(name || 'received_file');
     });
 
     createConnection(
@@ -72,11 +73,13 @@ const HomePage: React.FC = () => {
   const handleFileSelected = (fileInfo: FileInfo) => {
     setSelectedFile(fileInfo);
     resetTransfer();
+    setReceivedFileUrl(null);
   };
 
   const handlePeerSelected = (peer: Peer) => {
     setSelectedPeer(peer);
     resetTransfer();
+    setReceivedFileUrl(null);
   };
 
   const handleTransferClick = () => {
@@ -99,6 +102,7 @@ const HomePage: React.FC = () => {
                   <FileUploader onFileSelected={handleFileSelected} />
                 </div>
               )}
+
               {selectedFile && !selectedPeer && (
                 <div>
                   <div className="flex justify-between items-center mb-2">
@@ -110,10 +114,10 @@ const HomePage: React.FC = () => {
                   <PeerList
                     peers={availablePeers}
                     onPeerSelected={handlePeerSelected}
-                    selectedPeerId={selectedPeer?.id}
                   />
                 </div>
               )}
+
               {selectedFile && selectedPeer && !transferStatus && (
                 <div className="bg-gray-800 p-4 rounded-lg">
                   <h3 className="text-lg font-semibold text-gray-200 mb-2">Ready to Transfer</h3>
@@ -129,6 +133,7 @@ const HomePage: React.FC = () => {
                   </button>
                 </div>
               )}
+
               {transferStatus && (
                 <div>
                   <label className="block text-sm text-gray-300 mb-2">Transfer Status</label>
@@ -150,12 +155,27 @@ const HomePage: React.FC = () => {
                   )}
                 </div>
               )}
+
+              {receivedFileUrl && (
+                <div className="mt-4 p-4 bg-green-900 text-green-300 rounded">
+                  <p>📥 File received: <strong>{receivedFileName}</strong></p>
+                  <a
+                    href={receivedFileUrl}
+                    download={receivedFileName}
+                    className="underline text-white hover:text-teal-400"
+                  >
+                    Click here to download
+                  </a>
+                </div>
+              )}
             </div>
+
             <div className="mt-8">
               <h2 className="text-xl font-bold mb-4 text-gray-200">Recent Transfers</h2>
               <TransferHistory />
             </div>
           </div>
+
           <div className="space-y-6">
             <ConnectionInfo
               connectionId={connectionId}

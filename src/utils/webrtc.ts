@@ -1,11 +1,12 @@
 let localConnection: RTCPeerConnection;
 let dataChannel: RTCDataChannel;
 
-let onReceiveFile: (blob: Blob) => void = () => {};
+let onReceiveFile: (blob: Blob, name?: string, type?: string) => void = () => {};
 
-export function setFileReceiver(callback: (blob: Blob) => void) {
+export function setFileReceiver(callback: typeof onReceiveFile) {
   onReceiveFile = callback;
 }
+
 
 export async function createConnection(
   isInitiator: boolean,
@@ -64,28 +65,49 @@ export async function createConnection(
     }
   });
 
-  // 🔒 Wait until dataChannel is open before resolving
   await channelReady;
 }
 
 function setupDataChannel() {
   const receivedChunks: Uint8Array[] = [];
+  let fileName = 'received_file';
+  let fileType = 'application/octet-stream';
 
   dataChannel.onmessage = (event) => {
-    if (event.data === 'EOF') {
-      const blob = new Blob(receivedChunks);
-      onReceiveFile(blob);
-      receivedChunks.length = 0;
+    if (typeof event.data === 'string') {
+      try {
+        const parsed = JSON.parse(event.data);
+        if (parsed.meta) {
+          fileName = parsed.meta.name;
+          fileType = parsed.meta.type;
+          return;
+        }
+      } catch {
+        if (event.data === 'EOF') {
+          const blob = new Blob(receivedChunks, { type: fileType });
+          onReceiveFile(blob, fileName, fileType);  // ✅ Send all info
+          receivedChunks.length = 0;
+        }
+      }
     } else {
       receivedChunks.push(new Uint8Array(event.data));
     }
   };
 }
 
+
 export async function sendFile(file: File) {
   if (!dataChannel || dataChannel.readyState !== 'open') {
-    throw new Error('DataChannel is not open. Cannot send file.');
+    throw new Error('DataChannel is not open');
   }
+
+  // Send metadata first
+  const metadata = {
+    name: file.name,
+    type: file.type,
+    size: file.size
+  };
+  dataChannel.send(JSON.stringify({ meta: metadata }));
 
   const chunkSize = 16384;
   const arrayBuffer = await file.arrayBuffer();
@@ -95,7 +117,7 @@ export async function sendFile(file: File) {
     const chunk = arrayBuffer.slice(offset, offset + chunkSize);
     dataChannel.send(chunk);
     offset += chunkSize;
-    await new Promise((resolve) => setTimeout(resolve, 10)); // throttle
+    await new Promise((r) => setTimeout(r, 10));
   }
 
   dataChannel.send('EOF');
