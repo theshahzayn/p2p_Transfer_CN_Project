@@ -6,8 +6,22 @@ let username: string;
 
 export function register(user: string) {
   username = user;
-  socket.send(JSON.stringify({ type: 'register', username }));
+
+  const send = () => {
+    console.log('[Signaling] Registering:', username);
+    socket.send(JSON.stringify({ type: 'register', username }));
+  };
+
+  if (socket.readyState === 1) {
+    send();
+  } else {
+    socket.addEventListener('open', function handler() {
+      send();
+      socket.removeEventListener('open', handler);
+    });
+  }
 }
+
 
 export function sendSignal(to: string, signal: any) {
   socket.send(JSON.stringify({ type: 'signal', from: username, to, signal }));

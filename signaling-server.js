@@ -29,7 +29,19 @@ wss.on('connection', (ws) => {
               connected: false
             }));
 
-          ws.send(JSON.stringify({ type: 'peers', peers }));
+          // Send updated peer list to all connected clients
+          for (const [id, client] of clients.entries()) {
+            const otherPeers = Array.from(clients.entries())
+              .filter(([peerId]) => peerId !== id)
+              .map(([peerId, c]) => ({
+                id: peerId,
+                name: c.username,
+                connected: false
+              }));
+
+            client.ws.send(JSON.stringify({ type: 'peers', peers: otherPeers }));
+          }
+
 
           // Notify all other users
           broadcastToOthers(userId, {

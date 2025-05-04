@@ -1,7 +1,5 @@
-// File: src/utils/webrtc.ts
 let localConnection: RTCPeerConnection;
 let dataChannel: RTCDataChannel;
-let remoteConnection: RTCPeerConnection;
 
 let onReceiveFile: (blob: Blob) => void = () => {};
 
@@ -12,8 +10,8 @@ export function setFileReceiver(callback: (blob: Blob) => void) {
 export async function createConnection(
   isInitiator: boolean,
   sendSignal: (data: any) => void,
-  handleSignal: (data: any) => void
-) {
+  handleSignal: (cb: (data: any) => void) => void
+): Promise<void> {
   const config = {
     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
   };
@@ -24,18 +22,33 @@ export async function createConnection(
     if (e.candidate) sendSignal({ candidate: e.candidate });
   };
 
+  let channelReady: Promise<void>;
+
   if (isInitiator) {
     dataChannel = localConnection.createDataChannel('fileChannel');
-    setupDataChannel();
+
+    channelReady = new Promise((resolve) => {
+      dataChannel.onopen = () => {
+        console.log('[WebRTC] DataChannel open (initiator)');
+        setupDataChannel();
+        resolve();
+      };
+    });
 
     const offer = await localConnection.createOffer();
     await localConnection.setLocalDescription(offer);
     sendSignal({ offer });
   } else {
-    localConnection.ondatachannel = (event) => {
-      dataChannel = event.channel;
-      setupDataChannel();
-    };
+    channelReady = new Promise((resolve) => {
+      localConnection.ondatachannel = (event) => {
+        dataChannel = event.channel;
+        dataChannel.onopen = () => {
+          console.log('[WebRTC] DataChannel open (receiver)');
+          setupDataChannel();
+          resolve();
+        };
+      };
+    });
   }
 
   handleSignal(async (data: any) => {
@@ -50,6 +63,9 @@ export async function createConnection(
       await localConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
     }
   });
+
+  // 🔒 Wait until dataChannel is open before resolving
+  await channelReady;
 }
 
 function setupDataChannel() {
@@ -67,6 +83,10 @@ function setupDataChannel() {
 }
 
 export async function sendFile(file: File) {
+  if (!dataChannel || dataChannel.readyState !== 'open') {
+    throw new Error('DataChannel is not open. Cannot send file.');
+  }
+
   const chunkSize = 16384;
   const arrayBuffer = await file.arrayBuffer();
   let offset = 0;
@@ -75,7 +95,7 @@ export async function sendFile(file: File) {
     const chunk = arrayBuffer.slice(offset, offset + chunkSize);
     dataChannel.send(chunk);
     offset += chunkSize;
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 10)); // throttle
   }
 
   dataChannel.send('EOF');

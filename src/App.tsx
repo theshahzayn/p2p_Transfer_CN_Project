@@ -1,4 +1,3 @@
-import React from 'react';
 import { TransferProvider } from './contexts/TransferContext';
 import { UserProvider } from './contexts/UserContext';
 import HomePage from './pages/HomePage';
