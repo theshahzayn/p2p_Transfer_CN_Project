@@ -107,7 +107,7 @@ const TransferStatus: React.FC<TransferStatusProps> = ({
           <div className="mt-4 p-2 bg-indigo-900/30 rounded border border-indigo-800 flex items-center space-x-2">
             <Shield className="h-4 w-4 text-indigo-400" />
             <div className="overflow-hidden">
-              <p className="text-xs text-gray-300">Blockchain Verified</p>
+              <p className="text-xs text-gray-300">Verified</p>
               <p className="text-xs text-gray-500 truncate">
                 TX: {transfer.transactionHash}
               </p>

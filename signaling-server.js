@@ -4,7 +4,6 @@ import { createServer } from 'http';
 const server = createServer();
 const wss = new WebSocketServer({ server });
 
-// Store connected clients
 const clients = new Map();
 
 wss.on('connection', (ws) => {
@@ -13,16 +12,15 @@ wss.on('connection', (ws) => {
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message.toString());
+      console.log('[Server] Received:', data);
 
       switch (data.type) {
         case 'register':
-          userId = data.userId;
-          clients.set(userId, {
-            ws,
-            username: data.username
-          });
+          userId = data.username; // ✅ use username as unique ID
+          clients.set(userId, { ws, username: data.username });
+          console.log(`[Server] Registered user: ${userId}`);
 
-          // Send the current peer list to the new user
+          // Send peer list to the new user
           const peers = Array.from(clients.entries())
             .filter(([id]) => id !== userId)
             .map(([id, client]) => ({
@@ -31,42 +29,39 @@ wss.on('connection', (ws) => {
               connected: false
             }));
 
-          ws.send(JSON.stringify({
-            type: 'peer-list',
-            peers
-          }));
+          ws.send(JSON.stringify({ type: 'peers', peers }));
 
-          // Broadcast new user to others
+          // Notify all other users
           broadcastToOthers(userId, {
             type: 'peer-joined',
-            peer: {
-              id: userId,
-              name: data.username,
-              connected: false
-            }
+            peer: { id: userId, name: data.username, connected: false }
           });
           break;
 
-        case 'offer':
-        case 'answer':
-        case 'ice-candidate':
-          const targetClient = clients.get(data.targetId);
-          if (targetClient) {
-            targetClient.ws.send(JSON.stringify({
-              ...data,
-              sourceId: userId
+        case 'signal':
+          const target = clients.get(data.to);
+          if (target) {
+            console.log(`[Server] Relaying signal from ${data.from} to ${data.to}`);
+            target.ws.send(JSON.stringify({
+              type: 'signal',
+              from: data.from,
+              signal: data.signal
             }));
           }
           break;
+
+        default:
+          console.warn('[Server] Unknown message type:', data.type);
       }
-    } catch (error) {
-      console.error('Error handling message:', error);
+    } catch (err) {
+      console.error('[Server] Failed to parse message:', err);
     }
   });
 
   ws.on('close', () => {
     if (userId) {
       clients.delete(userId);
+      console.log(`[Server] Disconnected: ${userId}`);
       broadcastToOthers(userId, {
         type: 'peer-left',
         peerId: userId
@@ -85,5 +80,5 @@ function broadcastToOthers(senderId, message) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Signaling server running on port ${PORT}`);
+  console.log(`✅ Signaling server running on port ${PORT}`);
 });

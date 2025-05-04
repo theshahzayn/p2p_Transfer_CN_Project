@@ -1,3 +1,4 @@
+// File: src/contexts/TransferContext.tsx
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { 
@@ -6,9 +7,10 @@ import {
   Peer,
   BlockchainTransaction
 } from '../types';
-import { generateEncryptionKey, encryptFile, hashFile } from '../utils/crypto';
+import { generateEncryptionKey, encryptFile } from '../utils/crypto';
 import { recordFileTransfer } from '../utils/blockchain';
-import { getLocalPeerId, sendFileToPeer } from '../utils/webrtc';
+import { createConnection, sendFile, setFileReceiver } from '../utils/webrtc';
+import { sendSignal, onSignal } from '../utils/signaling';
 
 interface TransferContextType {
   selectedFile: FileInfo | null;
@@ -41,7 +43,23 @@ export const TransferProvider: React.FC<TransferProviderProps> = ({ children }) 
   const [transferStatus, setTransferStatus] = useState<TransferStatusType | null>(null);
   const [transaction, setTransaction] = useState<BlockchainTransaction | null>(null);
 
-  // Reset transfer status when file or peer changes
+  useEffect(() => {
+    setFileReceiver((blob) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'received_file';
+      a.click();
+
+      setTransferStatus(prev => prev ? {
+        ...prev,
+        status: 'complete',
+        progress: 100,
+        endTime: Date.now()
+      } : null);
+    });
+  }, []);
+
   useEffect(() => {
     if (transferStatus && transferStatus.status !== 'complete' && transferStatus.status !== 'failed') {
       setTransferStatus(null);
@@ -49,87 +67,64 @@ export const TransferProvider: React.FC<TransferProviderProps> = ({ children }) 
   }, [selectedFile, selectedPeer]);
 
   const startTransfer = async () => {
-    if (!selectedFile || !selectedPeer) {
+    if (!selectedFile || !selectedPeer || !selectedFile.fileObject) {
       console.error('File or peer not selected');
       return;
     }
 
     const transferId = uuidv4();
-    
-    // Initialize transfer status
+
     setTransferStatus({
       id: transferId,
       fileId: selectedFile.id,
-      progress: 0,
-      status: 'pending',
+      progress: 5,
+      status: 'connecting',
       startTime: Date.now(),
       receiverId: selectedPeer.id
     });
 
     try {
-      // Update status to connecting
-      setTransferStatus(prev => prev ? {
-        ...prev,
-        status: 'connecting',
-        progress: 5
-      } : null);
-      
-      await new Promise(resolve => setTimeout(resolve, 800));
-      
-      // Generate encryption key
-      const encryptionKey = generateEncryptionKey();
-      
-      // Update status to encrypting
+      await createConnection(
+        true,
+        (signal) => sendSignal(selectedPeer.id, signal),
+        (handle) => onSignal((from, signal) => {
+          if (from === selectedPeer.id) handle(signal);
+        })
+      );
+
       setTransferStatus(prev => prev ? {
         ...prev,
         status: 'encrypting',
         progress: 15
       } : null);
-      
-      // Encrypt file (mock)
-      const fileBlob = new Blob(['Mock file content'], { type: 'text/plain' });
-      await encryptFile(fileBlob as File, encryptionKey);
-      
-      await new Promise(resolve => setTimeout(resolve, 1200));
-      
-      // Update status to transferring
+
+      const encryptionKey = generateEncryptionKey();
+      const encryptedBlob = await encryptFile(selectedFile.fileObject, encryptionKey);
+
       setTransferStatus(prev => prev ? {
         ...prev,
         status: 'transferring',
-        progress: 30
+        progress: 40
       } : null);
-      
-      // Send file to peer (mock with progress updates)
-      await sendFileToPeer(
+
+      await sendFile(encryptedBlob);
+
+      const tx = await recordFileTransfer(
+        selectedFile.hash || 'placeholder_hash',
+        'me',
         selectedPeer.id,
-        fileBlob,
-        (progress) => {
-          setTransferStatus(prev => prev ? {
-            ...prev,
-            progress: 30 + (progress * 0.5) // 30% to 80%
-          } : null);
-        }
+        selectedFile.name,
+        selectedFile.size
       );
-      
-      // Update status to verifying
+
+      setTransaction(tx);
+
       setTransferStatus(prev => prev ? {
         ...prev,
         status: 'verifying',
         progress: 85
       } : null);
-      
-      // Record transfer on blockchain
-      const tx = await recordFileTransfer(
-        selectedFile.hash || 'unknown',
-        getLocalPeerId(),
-        selectedPeer.id,
-        selectedFile.name,
-        selectedFile.size
-      );
-      
-      setTransaction(tx);
-      
-      // Complete transfer
+
       setTransferStatus(prev => prev ? {
         ...prev,
         status: 'complete',
@@ -137,17 +132,15 @@ export const TransferProvider: React.FC<TransferProviderProps> = ({ children }) 
         endTime: Date.now(),
         transactionHash: tx.hash
       } : null);
-      
-    } catch (error: any) {
-      console.error('Transfer failed:', error);
-      
-      // Update status to failed
+
+    } catch (err: any) {
+      console.error('Transfer failed:', err);
       setTransferStatus(prev => prev ? {
         ...prev,
         status: 'failed',
         progress: 0,
         endTime: Date.now(),
-        error: error.message || 'Unknown error occurred'
+        error: err.message || 'Unknown error occurred'
       } : null);
     }
   };
@@ -157,7 +150,7 @@ export const TransferProvider: React.FC<TransferProviderProps> = ({ children }) 
     setTransaction(null);
   };
 
-  const value = {
+  const value: TransferContextType = {
     selectedFile,
     selectedPeer,
     transferStatus,

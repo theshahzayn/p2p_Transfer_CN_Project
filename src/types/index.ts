@@ -1,4 +1,3 @@
-// File Transfer Types
 export interface FileInfo {
   id: string;
   name: string;
@@ -7,13 +6,24 @@ export interface FileInfo {
   lastModified: number;
   hash?: string;
   encryptionKey?: string;
+  fileObject?: File; // ✅ actual file
 }
+
+
+export type TransferPhase =
+  | 'pending'
+  | 'connecting'
+  | 'encrypting'
+  | 'transferring'
+  | 'verifying'
+  | 'complete'
+  | 'failed';
 
 export interface TransferStatus {
   id: string;
   fileId: string;
-  progress: number;
-  status: 'pending' | 'connecting' | 'encrypting' | 'transferring' | 'verifying' | 'complete' | 'failed';
+  progress: number; // 0–100
+  status: TransferPhase;
   startTime: number;
   endTime?: number;
   error?: string;
@@ -21,16 +31,16 @@ export interface TransferStatus {
   transactionHash?: string;
 }
 
-// Connection Types
+// 📡 Peer Connection Types
 export interface Peer {
-  id: string;
-  name?: string;
-  connected: boolean;
-  lastSeen?: number;
-  publicKey?: string;
+  id: string;            // usually the username
+  name?: string;         // display name
+  connected: boolean;    // current session connected
+  lastSeen?: number;     // optional timestamp
+  publicKey?: string;    // for future encrypted peer metadata
 }
 
-// Blockchain Types
+// 🔗 Blockchain Types
 export interface BlockchainTransaction {
   hash: string;
   timestamp: number;
@@ -42,7 +52,7 @@ export interface BlockchainTransaction {
   verified: boolean;
 }
 
-// Encryption Types
+// 🔐 Encryption Keypair
 export interface KeyPair {
   publicKey: string;
   privateKey: string;

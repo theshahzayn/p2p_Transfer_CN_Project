@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
@@ -9,13 +10,15 @@ import TransferHistory from '../components/TransferHistory';
 import { FileInfo, Peer } from '../types';
 import { useTransfer } from '../contexts/TransferContext';
 import { useUser } from '../contexts/UserContext';
-import { initializeConnection, getLocalPeerId } from '../utils/webrtc';
 import { generateKeyPair } from '../utils/crypto';
 import { Send, RefreshCw } from 'lucide-react';
 
+import { createConnection, setFileReceiver } from '../utils/webrtc';
+import { sendSignal, onSignal } from '../utils/signaling';
+
 const HomePage: React.FC = () => {
-  const { 
-    selectedFile, 
+  const {
+    selectedFile,
     selectedPeer,
     transferStatus,
     setSelectedFile,
@@ -23,7 +26,7 @@ const HomePage: React.FC = () => {
     startTransfer,
     resetTransfer
   } = useTransfer();
-  
+
   const { username } = useUser();
   const [connectionId, setConnectionId] = useState('');
   const [publicKey, setPublicKey] = useState('');
@@ -32,24 +35,34 @@ const HomePage: React.FC = () => {
   useEffect(() => {
     const initConnection = async () => {
       if (username) {
-        // Initialize P2P connection with username
-        const peerId = initializeConnection(username);
-        setConnectionId(peerId);
-        
-        // Generate keypair for encryption
+        setConnectionId(username); // Use username as ID
         const keyPair = await generateKeyPair();
         setPublicKey(keyPair.publicKey);
       }
     };
-    
-    if (username) {
-      initConnection();
-    }
+
+    initConnection();
   }, [username]);
-  
+
   useEffect(() => {
     if (selectedPeer) {
       setConnectionTime(Date.now());
+
+      setFileReceiver((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'received_file';
+        a.click();
+      });
+
+      createConnection(
+        false,
+        (signal) => sendSignal(selectedPeer.id, signal),
+        (handle) => onSignal((from, signal) => {
+          if (from === selectedPeer.id) handle(signal);
+        })
+      );
     } else {
       setConnectionTime(undefined);
     }
@@ -76,12 +89,10 @@ const HomePage: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col bg-gray-900 text-white">
       <Header />
-      
       <main className="flex-1 container mx-auto px-4 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2">
             <h2 className="text-xl font-bold mb-4 text-gray-200">Secure File Transfer</h2>
-            
             <div className="space-y-6">
               {!selectedFile && (
                 <div className="transition-all duration-300">
@@ -89,7 +100,7 @@ const HomePage: React.FC = () => {
                   <FileUploader onFileSelected={handleFileSelected} />
                 </div>
               )}
-              
+
               {selectedFile && !selectedPeer && (
                 <div className="transition-all duration-300">
                   <div className="flex justify-between items-center mb-2">
@@ -104,7 +115,7 @@ const HomePage: React.FC = () => {
                   <PeerList onPeerSelected={handlePeerSelected} />
                 </div>
               )}
-              
+
               {selectedFile && selectedPeer && !transferStatus && (
                 <div className="transition-all duration-300">
                   <div className="flex justify-between items-center mb-2">
@@ -116,19 +127,19 @@ const HomePage: React.FC = () => {
                       Change peer
                     </button>
                   </div>
-                  
+
                   <div className="bg-gray-800 rounded-lg p-4">
                     <div className="flex items-start space-x-4 mb-4">
                       <div className="bg-indigo-900 bg-opacity-50 rounded-full p-3">
                         <Send className="h-6 w-6 text-teal-400" />
                       </div>
-                      
+
                       <div>
                         <h3 className="text-lg font-medium text-gray-200">Ready to Transfer</h3>
                         <p className="text-sm text-gray-400 mt-1">
                           Your file will be encrypted and securely transferred to {selectedPeer.name || selectedPeer.id}
                         </p>
-                        
+
                         <div className="mt-4 bg-gray-700 rounded-lg p-3">
                           <div className="flex justify-between text-sm mb-1">
                             <span className="text-gray-400">File:</span>
@@ -143,7 +154,7 @@ const HomePage: React.FC = () => {
                             <span className="text-gray-300">{selectedPeer.name || selectedPeer.id}</span>
                           </div>
                         </div>
-                        
+
                         <button
                           onClick={handleTransferClick}
                           className="mt-4 w-full py-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 rounded-md transition-colors flex items-center justify-center"
@@ -156,7 +167,7 @@ const HomePage: React.FC = () => {
                   </div>
                 </div>
               )}
-              
+
               {transferStatus && (
                 <div className="transition-all duration-300">
                   <div className="flex justify-between items-center mb-2">
@@ -171,7 +182,7 @@ const HomePage: React.FC = () => {
                       </button>
                     )}
                   </div>
-                  
+
                   {selectedFile && (
                     <TransferStatus 
                       transfer={transferStatus}
@@ -182,26 +193,25 @@ const HomePage: React.FC = () => {
                 </div>
               )}
             </div>
-            
+
             <div className="mt-8">
               <h2 className="text-xl font-bold mb-4 text-gray-200">Recent Transfers</h2>
               <TransferHistory />
             </div>
           </div>
-          
+
           <div className="space-y-6">
             <h2 className="text-xl font-bold mb-4 text-gray-200">Network Info</h2>
-            
+
             <ConnectionInfo 
               connectionId={connectionId}
               publicKey={publicKey}
               connectedPeer={selectedPeer?.name || selectedPeer?.id}
               connectionTime={connectionTime}
             />
-            
+
             <div className="bg-gray-800 rounded-lg p-4">
               <h3 className="text-gray-300 font-medium mb-3">How It Works</h3>
-              
               <div className="space-y-3 text-sm text-gray-400">
                 <p className="flex items-start">
                   <span className="inline-block h-5 w-5 rounded-full bg-indigo-900 text-indigo-300 flex items-center justify-center text-xs mr-2 flex-shrink-0">1</span>
@@ -224,7 +234,6 @@ const HomePage: React.FC = () => {
           </div>
         </div>
       </main>
-      
       <Footer />
     </div>
   );

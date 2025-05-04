@@ -1,4 +1,6 @@
+// File: src/contexts/UserContext.tsx
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { register } from '../utils/signaling';
 
 interface UserContextType {
   username: string | null;
@@ -23,6 +25,12 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
   const [username, setUsernameState] = useState<string | null>(() => {
     return localStorage.getItem('username');
   });
+
+  useEffect(() => {
+    if (username) {
+      register(username); // ✅ Register with signaling server
+    }
+  }, [username]);
 
   const setUsername = (name: string) => {
     const sanitizedName = name.trim();
