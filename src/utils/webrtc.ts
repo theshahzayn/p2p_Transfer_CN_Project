@@ -7,7 +7,6 @@ export function setFileReceiver(callback: typeof onReceiveFile) {
   onReceiveFile = callback;
 }
 
-
 export async function createConnection(
   isInitiator: boolean,
   sendSignal: (data: any) => void,
@@ -18,6 +17,38 @@ export async function createConnection(
   };
 
   localConnection = new RTCPeerConnection(config);
+
+  // ✅ Handle incoming signals immediately
+  const iceQueue: any[] = [];
+  let remoteSet = false;
+
+  handleSignal(async (data: any) => {
+    if (data.offer) {
+      await localConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+      remoteSet = true;
+
+      const answer = await localConnection.createAnswer();
+      await localConnection.setLocalDescription(answer);
+      sendSignal({ answer });
+
+      for (const c of iceQueue) {
+        await localConnection.addIceCandidate(new RTCIceCandidate(c));
+      }
+    } else if (data.answer) {
+      await localConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+      remoteSet = true;
+
+      for (const c of iceQueue) {
+        await localConnection.addIceCandidate(new RTCIceCandidate(c));
+      }
+    } else if (data.candidate) {
+      if (remoteSet) {
+        await localConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+      } else {
+        iceQueue.push(data.candidate);
+      }
+    }
+  });
 
   localConnection.onicecandidate = (e) => {
     if (e.candidate) sendSignal({ candidate: e.candidate });
@@ -39,6 +70,7 @@ export async function createConnection(
     const offer = await localConnection.createOffer();
     await localConnection.setLocalDescription(offer);
     sendSignal({ offer });
+
   } else {
     channelReady = new Promise((resolve) => {
       localConnection.ondatachannel = (event) => {
@@ -52,24 +84,11 @@ export async function createConnection(
     });
   }
 
-  handleSignal(async (data: any) => {
-    if (data.offer) {
-      await localConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-      const answer = await localConnection.createAnswer();
-      await localConnection.setLocalDescription(answer);
-      sendSignal({ answer });
-    } else if (data.answer) {
-      await localConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-    } else if (data.candidate) {
-      await localConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-    }
-  });
-
   await channelReady;
 }
 
 function setupDataChannel() {
-  const receivedChunks: Uint8Array[] = [];
+  let receivedChunks: Uint8Array[] = [];
   let fileName = 'received_file';
   let fileType = 'application/octet-stream';
 
@@ -85,31 +104,34 @@ function setupDataChannel() {
       } catch {
         if (event.data === 'EOF') {
           const blob = new Blob(receivedChunks, { type: fileType });
-          onReceiveFile(blob, fileName, fileType);  // ✅ Send all info
-          receivedChunks.length = 0;
+          onReceiveFile(blob, fileName, fileType);
+          receivedChunks = []; // ✅ Reset safely
         }
       }
     } else {
       receivedChunks.push(new Uint8Array(event.data));
     }
   };
-}
 
+  dataChannel.onerror = (e) => {
+    console.error('[WebRTC] DataChannel error:', e);
+  };
+}
 
 export async function sendFile(file: File) {
   if (!dataChannel || dataChannel.readyState !== 'open') {
     throw new Error('DataChannel is not open');
   }
 
-  // Send metadata first
   const metadata = {
     name: file.name,
     type: file.type,
     size: file.size
   };
+
   dataChannel.send(JSON.stringify({ meta: metadata }));
 
-  const chunkSize = 16384;
+  const chunkSize = 16 * 1024;
   const arrayBuffer = await file.arrayBuffer();
   let offset = 0;
 
@@ -117,7 +139,7 @@ export async function sendFile(file: File) {
     const chunk = arrayBuffer.slice(offset, offset + chunkSize);
     dataChannel.send(chunk);
     offset += chunkSize;
-    await new Promise((r) => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 10)); // slight throttle
   }
 
   dataChannel.send('EOF');

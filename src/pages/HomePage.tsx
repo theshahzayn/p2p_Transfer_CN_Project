@@ -30,9 +30,20 @@ const HomePage: React.FC = () => {
   const [publicKey, setPublicKey] = useState('');
   const [connectionTime, setConnectionTime] = useState<number>();
   const [availablePeers, setAvailablePeers] = useState<Peer[]>([]);
-
   const [receivedFileUrl, setReceivedFileUrl] = useState<string | null>(null);
   const [receivedFileName, setReceivedFileName] = useState<string>('received_file');
+  const [isReceiving, setIsReceiving] = useState(false);
+
+  // Always ready to receive files
+  useEffect(() => {
+    setFileReceiver((blob, name, type) => {
+      console.log('[Receiver] File received:', name, type, blob);
+      const url = URL.createObjectURL(blob);
+      setReceivedFileUrl(url);
+      setReceivedFileName(name || 'received_file');
+      setIsReceiving(false);
+    });
+  }, []);
 
   useEffect(() => {
     if (username) {
@@ -54,12 +65,8 @@ const HomePage: React.FC = () => {
     }
 
     setConnectionTime(Date.now());
-
-    setFileReceiver((blob, name, type) => {
-      const url = URL.createObjectURL(blob);
-      setReceivedFileUrl(url);
-      setReceivedFileName(name || 'received_file');
-    });
+    setIsReceiving(true);
+    setReceivedFileUrl(null);
 
     createConnection(
       false,
@@ -74,16 +81,26 @@ const HomePage: React.FC = () => {
     setSelectedFile(fileInfo);
     resetTransfer();
     setReceivedFileUrl(null);
+    setIsReceiving(false);
   };
 
   const handlePeerSelected = (peer: Peer) => {
     setSelectedPeer(peer);
     resetTransfer();
     setReceivedFileUrl(null);
+    setIsReceiving(true);
   };
 
   const handleTransferClick = () => {
     startTransfer();
+  };
+
+  const handleStartNew = () => {
+    resetTransfer();
+    setSelectedFile(null);
+    setSelectedPeer(null);
+    setReceivedFileUrl(null);
+    setIsReceiving(false);
   };
 
   if (!username) return null;
@@ -107,14 +124,14 @@ const HomePage: React.FC = () => {
                 <div>
                   <div className="flex justify-between items-center mb-2">
                     <label className="block text-sm text-gray-300">Step 2: Connect to a peer</label>
-                    <button onClick={() => setSelectedFile(null)} className="text-xs text-gray-400 hover:text-teal-400">
+                    <button
+                      onClick={() => setSelectedFile(null)}
+                      className="text-xs text-gray-400 hover:text-teal-400"
+                    >
                       Change file
                     </button>
                   </div>
-                  <PeerList
-                    peers={availablePeers}
-                    onPeerSelected={handlePeerSelected}
-                  />
+                  <PeerList peers={availablePeers} onPeerSelected={handlePeerSelected} />
                 </div>
               )}
 
@@ -122,7 +139,8 @@ const HomePage: React.FC = () => {
                 <div className="bg-gray-800 p-4 rounded-lg">
                   <h3 className="text-lg font-semibold text-gray-200 mb-2">Ready to Transfer</h3>
                   <p className="text-sm text-gray-400">
-                    Sending <strong>{selectedFile.name}</strong> to <strong>{selectedPeer.name || selectedPeer.id}</strong>
+                    Sending <strong>{selectedFile.name}</strong> to{' '}
+                    <strong>{selectedPeer.name || selectedPeer.id}</strong>
                   </p>
                   <button
                     onClick={handleTransferClick}
@@ -146,7 +164,7 @@ const HomePage: React.FC = () => {
                   )}
                   {(transferStatus.status === 'complete' || transferStatus.status === 'failed') && (
                     <button
-                      onClick={resetTransfer}
+                      onClick={handleStartNew}
                       className="mt-2 text-xs text-gray-400 hover:text-teal-400 flex items-center"
                     >
                       <RefreshCw className="h-3 w-3 mr-1" />
@@ -156,8 +174,20 @@ const HomePage: React.FC = () => {
                 </div>
               )}
 
+              {isReceiving && !receivedFileUrl && (
+                <div className="mt-4 p-4 bg-blue-900 text-blue-300 rounded">
+                  <p>⏳ Waiting to receive a file from a peer...</p>
+                </div>
+              )}
+
               {receivedFileUrl && (
-                <div className="mt-4 p-4 bg-green-900 text-green-300 rounded">
+                <div className="mt-4 p-4 bg-green-900 text-green-300 rounded relative">
+                  <button
+                    onClick={() => setReceivedFileUrl(null)}
+                    className="absolute top-2 right-3 text-white hover:text-red-400"
+                  >
+                    ×
+                  </button>
                   <p>📥 File received: <strong>{receivedFileName}</strong></p>
                   <a
                     href={receivedFileUrl}
